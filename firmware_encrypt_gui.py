@@ -5,11 +5,16 @@ from Crypto.Util.Padding import pad
 import struct
 import zlib
 import os
+import hashlib
 from PIL import Image, ImageTk
 
 # ---------- CẤU HÌNH CỨNG ----------
 KEY = bytes.fromhex('603deb1015ca71be2b73aef0857d7781')
-IV = bytes.fromhex('000102030405060708090a0b0c0d0e0f')
+
+# ---------- TÍNH IV ĐỘNG TỪ HEADER ----------
+def generate_iv_from_header(header_bytes: bytes) -> bytes:
+    hash_full = hashlib.sha256(header_bytes).digest()
+    return hash_full[:16]  # 128-bit đầu làm IV
 
 # ---------- MÃ HÓA FIRMWARE ----------
 def encrypt_firmware(input_path, output_path, firmware_type, firmware_version):
@@ -19,13 +24,20 @@ def encrypt_firmware(input_path, output_path, firmware_type, firmware_version):
     firmware_size = len(firmware_data)
     checksum = zlib.crc32(firmware_data) & 0xFFFFFFFF
 
+    # Header gồm: type, size, version, checksum
     header = struct.pack("<IIII", firmware_type, firmware_size, firmware_version, checksum)
+
+    # IV động từ header
+    iv = generate_iv_from_header(header)
+
+    # Ghép header + firmware rồi mã hóa
     plaintext = header + firmware_data
     padded = pad(plaintext, 16)
 
-    cipher = AES.new(KEY, AES.MODE_CBC, IV)
+    cipher = AES.new(KEY, AES.MODE_CBC, iv)
     ciphertext = cipher.encrypt(padded)
 
+    # Ghi ra file: header gốc + ciphertext
     with open(output_path, "wb") as f:
         f.write(header)
         f.write(ciphertext)
@@ -98,11 +110,7 @@ tk.Button(root, text="Mã hóa", width=20, command=run_encrypt, bg="green", fg="
 
 # --- THÊM ẢNH LOGO ---
 try:
-    from PIL import Image, ImageTk
-
-    # Tính toán lại kích thước
-    img_width, img_height = 58, 84  # pixel: ~half of 1.53cm x 2.26cm
-
+    img_width, img_height = 58, 84
     logo_img = Image.open("D:/BKHN/STM32/Tool/logodhbk.png")
     try:
         resample = Image.Resampling.LANCZOS
@@ -112,13 +120,10 @@ try:
 
     logo_photo = ImageTk.PhotoImage(logo_img)
     logo_label = tk.Label(root, image=logo_photo)
-    logo_label.image = logo_photo  # giữ tham chiếu tránh bị garbage collected
-
-    # Gán ảnh ở góc dưới bên phải
+    logo_label.image = logo_photo
     logo_label.place(x=600 - img_width - 10, y=300 - img_height - 10)
 
 except Exception as e:
     print(f"Lỗi tải ảnh logo: {e}")
-
 
 root.mainloop()
